@@ -19,10 +19,24 @@ data_vehicles = pd.read_csv("vehicles.csv")
 #Tri par coût de location croissant
 vehicules_sorted = data_vehicles.sort_values(by='rental_cost').to_dict(orient="records")
 
-def get_vehicule(weight):
-    for v in vehicules_sorted:
-        if v['max_capacity'] >= weight:
-            return v['family']
+def get_vehicule(weight, dist):
+    #renvoie l'id de la famille de véhicule au coût le moins cher pr un poids et un trajet donné
+    best_family = None
+    min_total_cost = float('inf')
+    #On parcourt tous les véhicules disponibles
+    for index, vehicle in data_vehicles.iterrows():
+        if vehicle['max_capacity'] >= weight:
+            #Trajet aller-retour (dépôt->commande->dépôt) VALABLE SEULEMENT PR HEURISTIQUE DE GROS BEBE
+            total_dist = 2*dist
+            #Rayon=distance la plus lointaine du dépôt
+            radius = dist
+            
+            #Minimiser coût total
+            current_cost = vehicle['rental_cost'] + vehicle['fuel_cost']*total_dist + vehicle['radius_cost']*radius
+            if current_cost < min_total_cost:
+                min_total_cost = current_cost
+                best_family = vehicle['family']
+    return best_family
 
 
 # Chargement instances
@@ -64,13 +78,16 @@ for A in range(10):   # A = 0..9
     print(f"Instance {A+1:02d}...")
     df_inst = pd.read_csv(fichier_instance)
     
-    orders = df_inst[df_inst['order_weight'].notna()].copy() #commandes (séparées du dépot)
+    #commandes (séparées du dépot)
+    index_depot = 0
+    orders = df_inst[df_inst['order_weight'].notna()].copy()
 
     for index, row in orders.iterrows():
         order_id = row['id']
         weight = row['order_weight']
-        vehicule_id = get_vehicule(weight)
-
+        #distance de manhattan entre dépôt et commande
+        dist_depot_commande = distM(index_depot, index, A)
+        vehicule_id = get_vehicule(weight, dist_depot_commande)
         routes_list.append([vehicule_id, order_id])
 
     ##FORMAT SOLUTION
