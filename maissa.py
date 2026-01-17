@@ -1,4 +1,5 @@
 #Bloc d'importation
+from tabnanny import verbose
 import pandas as pd
 import numpy as np
 import math
@@ -61,11 +62,78 @@ def is_route_possible(family, sequence, instance_idx):
     """
     Determines if a given sequence of nodes can form a valid route
     for the specified instance index and family vehicle.
-
+    
     Args:
         family (str): The family of vehicles
         sequence (list): A list of node indices representing the route.
         instance_idx (int): The index of the instance file.
     """
-    # Contraine de temps => on veut que les fenetre de temps soient dans l'ordre croissant  et le tjmax -lj - timax >= tauij(tmax)
+    if not isinstance(sequence, (list, tuple)):
+        print("sequence must be a list or tuple.")
+        return False
+    if not (0 <= instance_idx < len(instances)):
+        print("instance_idx out of range.")
+        return False
+
+    # Pas de dépôt dans la séquence (implicite au début)
+    if 0 in sequence:
+        print("depot in sequence")
+        return False
     
+    #Noeuds valides
+    inst_size = len(instances[instance_idx])
+    for node in sequence:
+        if not (0 <= node < inst_size):
+            print("invalid node in sequence")
+            return False
+    
+    # Pas de doublons dans la séquence
+    if len(sequence) != len(set(sequence)):
+        print("duplicates in sequence")
+        return False
+    
+    inst = instances[instance_idx]
+    row_f = data_vehicles.loc[data_vehicles["family"] == family].iloc[0]
+    capacity = row_f["max_capacity"]  
+
+    # Capacitée du véhicule respéctée
+    total_weight = 0.0
+    for node in sequence:
+        w = inst[node].get("order_weight", None)
+        if w is None or (isinstance(w, float) and np.isnan(w)):
+            return False
+        total_weight += w
+
+    if total_weight > capacity:
+        print("capacity exceeded")
+        return False
+    
+    # Contraine de temps ( fenêtres de temps )
+    
+    current_time = 0.0    # temps actuel = départ dépôt
+    prev = 0   # dépôt implicite
+
+    for j in sequence: 
+        i = prev
+        # temps de trajet majoré
+        travel = temps_max(i, j, family, instance_idx)
+        # arrivée brute à j
+        arrival = current_time + travel
+
+        tmin_j = inst[j]["window_start"]
+        tmax_j = inst[j]["window_end"]
+        lj = inst[j]["delivery_duration"]
+
+        # attente autorisée
+        start_service = max(arrival, tmin_j)
+
+        # faisabilité fenêtre
+        if start_service > tmax_j:
+            print("time window violated")
+            return False
+
+        # départ après service
+        current_time = start_service + lj
+        prev = j
+
+    return True
