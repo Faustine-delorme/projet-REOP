@@ -268,7 +268,7 @@ for A in range(10):
 
     final_routes = []
     for r_id, sequence in routes_simples.items():
-        total_w = sum(df_inst.loc[df_inst['id'] == client_id, 'order_weight'].values[0] for client_id in new_sequence if client_id != 0)
+        total_w = sum(df_inst.loc[df_inst['id'] == client_id, 'order_weight'].values[0] for client_id in sequence if client_id != 0)
         d_tot, r_max = get_route_dist_rad(sequence, A)
         family = get_best_vehicle(total_w, d_tot, r_max)
 
