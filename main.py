@@ -1,4 +1,5 @@
 #Bloc d'importation
+from tabnanny import verbose
 import pandas as pd
 import numpy as np
 import math
@@ -16,6 +17,145 @@ phi_0 = 48.764246
 
 # Chargement véhicules
 data_vehicles = pd.read_csv("vehicles.csv")
+
+# Chargement instances
+instances = []
+for k in range(1, 11):
+    file_path = f"instance_{k:02d}.csv"
+    df = pd.read_csv(file_path)
+    instances.append(df.to_dict(orient="records"))
+
+# Chargement instances
+instances = []
+for k in range(1, 11):
+    file_path = f"instance_{k:02d}.csv"
+    df = pd.read_csv(file_path)
+    instances.append(df.to_dict(orient="records"))
+
+
+#########################################
+#           FONCTIONS AUXILIAIRES
+#########################################
+
+# Coordonnees
+def yj_yi(phij, phii): #yj - yi
+    return rho * 2 * np.pi * (phij - phii) / 360
+
+def xj_xi(lambdaj, lambdai): #xj - xi
+    return rho * math.cos(2 * np.pi * phi_0 / 360) * 2 * np.pi * (lambdaj - lambdai) / 360
+
+def distM(i, j, instance_idx): #distance de manhattan entre i et j du fichier A
+    deltax = xj_xi(instances[instance_idx][j]["longitude"], instances[instance_idx][i]["longitude"])
+    deltay = yj_yi(instances[instance_idx][j]["latitude"], instances[instance_idx][i]["latitude"])
+    return abs(deltax) + abs(deltay)
+
+def gamma_f_max(row_f):
+    # majorant simple
+    return sum(
+        np.sqrt(row_f[f"fourier_cos_{n}"]**2 + row_f[f"fourier_sin_{n}"]**2)
+        for n in range(4)
+    )
+
+def temps_max(i, j, family, instance_idx):    
+    """
+    Returns the maximum travel time for a given family and instance index from i to j.
+    tau_f(i,j|max) = (distM(i,j)/s_f + p_f) * gamma_f_max
+    Args:
+        family (str): The family of vehicles
+        i (int): The starting node index.
+        j (int): The ending node index.
+        instance_idx (int): The index of the instance file.
+    """
+    row_f = data_vehicles.loc[data_vehicles["family"] == family].iloc[0]
+    speed_f = row_f["speed"]
+    p_f = row_f["parking_time"]
+    gamma_f = gamma_f_max(row_f)
+    distance = distM(i, j, instance_idx)
+    return (distance / speed_f + p_f) * gamma_f
+
+
+
+
+def is_route_possible(family, sequence, instance_idx):
+    """
+    Determines if a given sequence of nodes can form a valid route
+    for the specified instance index and family vehicle.
+    
+    Args:
+        family (str): The family of vehicles
+        sequence (list): A list of node indices representing the route.
+        instance_idx (int): The index of the instance file.
+    """
+    if not isinstance(sequence, (list, tuple)):
+        print("sequence must be a list or tuple.")
+        return False
+    if not (0 <= instance_idx < len(instances)):
+        print("instance_idx out of range.")
+        return False
+
+    # Pas de dépôt dans la séquence (implicite au début)
+    if 0 in sequence:
+        print("depot in sequence")
+        return False
+    
+    #Noeuds valides
+    inst_size = len(instances[instance_idx])
+    for node in sequence:
+        if not (0 <= node < inst_size):
+            print("invalid node in sequence")
+            return False
+    
+    # Pas de doublons dans la séquence
+    if len(sequence) != len(set(sequence)):
+        print("duplicates in sequence")
+        return False
+    
+    inst = instances[instance_idx]
+    row_f = data_vehicles.loc[data_vehicles["family"] == family].iloc[0]
+    capacity = row_f["max_capacity"]  
+
+    # Capacitée du véhicule respéctée
+    total_weight = 0.0
+    for node in sequence:
+        w = inst[node].get("order_weight", None)
+        if w is None or (isinstance(w, float) and np.isnan(w)):
+            return False
+        total_weight += w
+
+    if total_weight > capacity:
+        print("capacity exceeded")
+        return False
+    
+    # Contraine de temps ( fenêtres de temps )
+    
+    current_time = 0.0    # temps actuel = départ dépôt
+    prev = 0   # dépôt implicite
+
+    for j in sequence: 
+        i = prev
+        # temps de trajet majoré
+        travel = temps_max(i, j, family, instance_idx)
+        # arrivée brute à j
+        arrival = current_time + travel
+
+        tmin_j = inst[j]["window_start"]
+        tmax_j = inst[j]["window_end"]
+        lj = inst[j]["delivery_duration"]
+
+        # attente autorisée
+        start_service = max(arrival, tmin_j)
+
+        # faisabilité fenêtre
+        if start_service > tmax_j:
+            print("time window violated")
+            return False
+
+        # départ après service
+        current_time = start_service + lj
+        prev = j
+
+    return True
+
 
 #Fonction distance euclidienne
 def distE(i, j, A):
@@ -65,28 +205,6 @@ def get_best_vehicle(total_weight, total_dist, max_radius):
                 best_family = v['family']   
     return best_family
 
-# Chargement instances
-instances = []
-for k in range(1, 11):
-    file_path = f"instance_{k:02d}.csv"
-    df = pd.read_csv(file_path)
-    instances.append(df.to_dict(orient="records"))
-
-
-#########################################
-#          FONCTIONS GÉOMÉTRIQUES
-#########################################
-# Coordonnees
-def yj_yi(phij, phii): #yj - yi
-    return rho * 2 * np.pi * (phij - phii) / 360
-
-def xj_xi(lambdaj, lambdai): #xj - xi
-    return rho * math.cos(2 * np.pi * phi_0 / 360) * 2 * np.pi * (lambdaj - lambdai) / 360
-
-def distM(i, j, A): #distance de manhattan entre i et j du fichier A
-    deltax = xj_xi(instances[A][j]["longitude"], instances[A][i]["longitude"])
-    deltay = yj_yi(instances[A][j]["latitude"], instances[A][i]["latitude"])
-    return abs(deltax) + abs(deltay)
 
 
 #########################################
@@ -120,7 +238,7 @@ for A in range(10):
         #trouver les routes contenant i et j
         route_i = None
         route_j = None
-        for r_id, r_seq in routes.items():
+        for r_id, r_seq in routes_simples.items():
             if r_seq[-2] == i: #dans sa route, i est le dernier client visité avant le dépôt
                 route_i = r_id
             if r_seq[1] == j: #dans sa route, j est le premier client visité après le dépôt
@@ -128,7 +246,7 @@ for A in range(10):
         
         #conditions pour fusionner : i et j dans des routes différentes
         if route_i is not None and route_j is not None and route_i != route_j:
-            new_sequence = routes[route_i][:-1] + routes[route_j][1:]
+            new_sequence = routes_simples[route_i][:-1] + routes_simples[route_j][1:]
             
             #vérifier si un véhicule peut faire cette route (poids + temps)
             can_merge = False
@@ -137,7 +255,7 @@ for A in range(10):
             #on récupère le poids total de la route fusionnée
             total_w = sum(df_inst.loc[df_inst['id'] == client_id, 'order_weight'].values[0] for client_id in new_sequence if client_id != 0)
             
-            for v in vehicules:
+            for i, v in data_vehicles.iterrows():
                 if total_w <= v['max_capacity']: 
                     if is_route_possible(v['family'], new_sequence[1:-1], A):
                         can_merge = True
@@ -145,17 +263,17 @@ for A in range(10):
             
             if can_merge:
                 #si on peut, on fusionne et on supprime donc la route j
-                routes[route_i] = new_sequence
-                del routes[route_j]
+                routes_simples[route_i] = new_sequence
+                del routes_simples[route_j]
 
     final_routes = []
-    for r_id, sequence in routes.items():
+    for r_id, sequence in routes_simples.items():
         total_w = sum(df_inst.loc[df_inst['id'] == client_id, 'order_weight'].values[0] for client_id in new_sequence if client_id != 0)
         d_tot, r_max = get_route_dist_rad(sequence, A)
         family = get_best_vehicle(total_w, d_tot, r_max)
 
         if family:
-            final_routes.append({"family":family, "sequence"=sequence})
+            final_routes.append({"family":family, "sequence":sequence})
     
     #########################################
     #      EXPORT CSV (Format Flexible)
